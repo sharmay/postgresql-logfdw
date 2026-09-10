@@ -39,9 +39,7 @@ Clone the repository from https://github.com/aws/postgresql-logfdw:
 git clone https://github.com/aws/postgresql-logfdw.git
 ``` 
 
-The extension can be installed in two different ways. As a stand alone project,
-first set the `PATH` environment variable to point to `pg_config`. Then run the
-following in the postgresql-logfdw directory:
+### Building with make
 
 ```
 export USE_PGXS=1
@@ -49,9 +47,36 @@ make
 make install
 ```
 
-Alternatively, if the extension needs to be part of a larger PostgreSQL 
-distrubution, the extension source code can be copied to the `contrib` directory
-under PostgreSQL source tree and installed from there.
+### Building with meson
+
+`meson.build` builds against an installed PostgreSQL (14 or later) located
+through `pg_config`:
+
+```
+meson setup build                     # or: -Dpg_config=/usr/pgsql-17/bin/pg_config
+ninja -C build
+ninja -C build install
+meson test -C build
+```
+
+Building inside a PostgreSQL source tree is not covered by `meson.build`; use
+the Makefile for that.
+
+### Running the tests
+
+The tests need a server with `logging_collector` enabled, so they always run
+against a temporary instance configured from `log_fdw.conf`.
+
+| Build | Command |
+| --- | --- |
+| In a PostgreSQL source tree (`contrib/postgresql-logfdw`) | `make check` |
+| Out of tree, Makefile | `make USE_PGXS=1 install standalone-check` |
+| Out of tree, meson | `ninja -C build install && meson test -C build` |
+
+Both out-of-tree targets require the extension to be installed first, because
+`pg_regress` resolves `CREATE EXTENSION` through the server's own `sharedir`
+and `pkglibdir`. `make check` is not available out of tree (PGXS defines it as
+a stub) and `installcheck` is intentionally disabled, hence `standalone-check`.
 
 ## Usage
 

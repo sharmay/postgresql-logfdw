@@ -138,6 +138,7 @@ static bool fileIsForeignScanParallelSafe(PlannerInfo *root, RelOptInfo *rel,
 static bool is_valid_option(const char *option, Oid context);
 static void fileGetOptions(Oid foreigntableid,
 						   char **filename, List **other_options);
+static void check_log_filename(const char *filename);
 static bool check_selective_binary_conversion(RelOptInfo *baserel,
 											  Oid foreigntableid,
 											  List **columns);
@@ -231,10 +232,7 @@ log_fdw_validator(PG_FUNCTION_ARGS)
 
 			filename = defGetString(def);
 
-			if (is_absolute_path(filename))
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("absolute path is not allowed as filename for log_fdw foreign tables")));
+			check_log_filename(filename);
 		}
 	}
 
@@ -245,6 +243,46 @@ log_fdw_validator(PG_FUNCTION_ARGS)
 				 errmsg("filename is required for log_fdw foreign tables")));
 
 	PG_RETURN_VOID();
+}
+
+/*
+ * Check that a "filename" option value is safe to append to log_directory.
+ *
+ * Log files live directly in log_directory, so only a plain base name is ever
+ * legitimate.  The value is tested exactly as it will be used: canonicalizing
+ * first would accept spellings such as "sub/../postgresql.log", which is then
+ * opened verbatim and resolves outside log_directory whenever "sub" is a
+ * symbolic link.
+ */
+static void
+check_log_filename(const char *filename)
+{
+	if (filename[0] == '\0')
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("filename for log_fdw foreign tables must not be empty")));
+
+	if (strlen(filename) >= MAXPGPATH)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("filename for log_fdw foreign tables is too long")));
+
+	if (is_absolute_path(filename))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("absolute path is not allowed as filename for log_fdw foreign tables")));
+
+	if (first_dir_separator(filename) != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("filename for log_fdw foreign tables must be a plain file name inside log_directory"),
+				 errdetail("Directory separators are not allowed.")));
+
+	if (strcmp(filename, ".") == 0 || strcmp(filename, "..") == 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("filename \"%s\" is not allowed for log_fdw foreign tables",
+						filename)));
 }
 
 /*
@@ -321,10 +359,12 @@ fileGetOptions(Oid foreigntableid,
 	if (*filename == NULL)
 		elog(ERROR, "filename is required for log_fdw foreign tables");
 
-	if (is_absolute_path(*filename))
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("absolute path is not allowed as filename for log_fdw foreign tables")));
+	/*
+	 * Re-validate here rather than trusting the validator alone: options can
+	 * be attached at the wrapper or server level, and catalog contents could
+	 * have been edited directly.
+	 */
+	check_log_filename(*filename);
 
 	full_filename = (char *) palloc(MAXPGPATH);
 

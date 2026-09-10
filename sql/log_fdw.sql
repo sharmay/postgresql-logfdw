@@ -14,6 +14,20 @@ CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (foo 'bar
 -- Invalid option value i.e. absolute path as value
 CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '/foo/bar');  -- ERROR
 
+-- Path traversal attempts must be rejected
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '../pg_hba.conf');  -- ERROR
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '../../../../etc/passwd');  -- ERROR
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename 'foo/../../bar.log');  -- ERROR
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename 'subdir/foo.log');  -- ERROR
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '');  -- ERROR
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '.');  -- ERROR
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '..');  -- ERROR
+
+-- A value that lexically reduces to a plain file name must still be rejected:
+-- it is opened verbatim, so it escapes log_directory if "sub" is a symlink.
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename 'sub/../postgresql.log');  -- ERROR
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename './postgresql.log');  -- ERROR
+
 -- Option provided more than once
 CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename 'foo', filename 'bar');  -- ERROR
 

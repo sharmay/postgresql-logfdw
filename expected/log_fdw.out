@@ -12,6 +12,33 @@ HINT:  Valid options in this context are: filename
 -- Invalid option value i.e. absolute path as value
 CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '/foo/bar');  -- ERROR
 ERROR:  absolute path is not allowed as filename for log_fdw foreign tables
+-- Path traversal attempts must be rejected
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '../pg_hba.conf');  -- ERROR
+ERROR:  filename for log_fdw foreign tables must be a plain file name inside log_directory
+DETAIL:  Directory separators are not allowed.
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '../../../../etc/passwd');  -- ERROR
+ERROR:  filename for log_fdw foreign tables must be a plain file name inside log_directory
+DETAIL:  Directory separators are not allowed.
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename 'foo/../../bar.log');  -- ERROR
+ERROR:  filename for log_fdw foreign tables must be a plain file name inside log_directory
+DETAIL:  Directory separators are not allowed.
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename 'subdir/foo.log');  -- ERROR
+ERROR:  filename for log_fdw foreign tables must be a plain file name inside log_directory
+DETAIL:  Directory separators are not allowed.
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '');  -- ERROR
+ERROR:  filename for log_fdw foreign tables must not be empty
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '.');  -- ERROR
+ERROR:  filename "." is not allowed for log_fdw foreign tables
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename '..');  -- ERROR
+ERROR:  filename ".." is not allowed for log_fdw foreign tables
+-- A value that lexically reduces to a plain file name must still be rejected:
+-- it is opened verbatim, so it escapes log_directory if "sub" is a symlink.
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename 'sub/../postgresql.log');  -- ERROR
+ERROR:  filename for log_fdw foreign tables must be a plain file name inside log_directory
+DETAIL:  Directory separators are not allowed.
+CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename './postgresql.log');  -- ERROR
+ERROR:  filename for log_fdw foreign tables must be a plain file name inside log_directory
+DETAIL:  Directory separators are not allowed.
 -- Option provided more than once
 CREATE FOREIGN TABLE log_fdw_ftbl_err () SERVER log_fdw_server OPTIONS (filename 'foo', filename 'bar');  -- ERROR
 ERROR:  option "filename" provided more than once
