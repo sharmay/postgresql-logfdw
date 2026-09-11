@@ -30,11 +30,19 @@ include $(PGXS)
 # extension has to be installed first, because pg_regress resolves
 # CREATE EXTENSION through the server's own sharedir and pkglibdir:
 #
-#	make USE_PGXS=1 install standalone-check
+#	make USE_PGXS=1 install
+#	make USE_PGXS=1 standalone-check
 #
 PG_REGRESS = $(shell $(PG_CONFIG) --pkglibdir)/pgxs/src/test/regress/pg_regress
+INSTALLED_MODULE = $(DESTDIR)$(pkglibdir)/log_fdw$(DLSUFFIX)
 
-standalone-check:
+standalone-check: all
+	@test -x '$(PG_REGRESS)' || { \
+		echo 'pg_regress not found at $(PG_REGRESS); install the server development files' >&2; \
+		exit 1; }
+	@if ! cmp -s log_fdw$(DLSUFFIX) '$(INSTALLED_MODULE)' && [ log_fdw$(DLSUFFIX) -nt '$(INSTALLED_MODULE)' ]; then \
+		echo '$(INSTALLED_MODULE) is older than the built module; run: make USE_PGXS=1 install' >&2; \
+		exit 1; fi
 	$(PG_REGRESS) --bindir='$(shell $(PG_CONFIG) --bindir)' \
 		--inputdir=$(srcdir) --outputdir=$(CURDIR) \
 		--temp-instance=$(CURDIR)/tmp_check \

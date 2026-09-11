@@ -252,7 +252,9 @@ log_fdw_validator(PG_FUNCTION_ARGS)
  * legitimate.  The value is tested exactly as it will be used: canonicalizing
  * first would accept spellings such as "sub/../postgresql.log", which is then
  * opened verbatim and resolves outside log_directory whenever "sub" is a
- * symbolic link.
+ * symbolic link.  The length of the composed path is checked where it is
+ * composed, in fileGetOptions(), since log_directory can change after the
+ * table is created.
  */
 static void
 check_log_filename(const char *filename)
@@ -262,21 +264,18 @@ check_log_filename(const char *filename)
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("filename for log_fdw foreign tables must not be empty")));
 
-	if (strlen(filename) >= MAXPGPATH)
+	if (is_absolute_path(filename) || has_drive_prefix(filename))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("filename for log_fdw foreign tables is too long")));
-
-	if (is_absolute_path(filename))
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("absolute path is not allowed as filename for log_fdw foreign tables")));
+				 errmsg("absolute path is not allowed as filename for log_fdw foreign tables"),
+				 errhint("Use list_postgres_log_files() to see the available file names.")));
 
 	if (first_dir_separator(filename) != NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("filename for log_fdw foreign tables must be a plain file name inside log_directory"),
-				 errdetail("Directory separators are not allowed.")));
+				 errdetail("Directory separators are not allowed."),
+				 errhint("Use list_postgres_log_files() to see the available file names.")));
 
 	if (strcmp(filename, ".") == 0 || strcmp(filename, "..") == 0)
 		ereport(ERROR,
@@ -318,6 +317,7 @@ fileGetOptions(Oid foreigntableid,
 	List	   *options;
 	ListCell   *lc;
 	char	   *full_filename;
+	int			len;
 
 	/*
 	 * Extract options from FDW objects.  We ignore user mappings because
@@ -360,18 +360,25 @@ fileGetOptions(Oid foreigntableid,
 		elog(ERROR, "filename is required for log_fdw foreign tables");
 
 	/*
-	 * Re-validate here rather than trusting the validator alone: options can
-	 * be attached at the wrapper or server level, and catalog contents could
-	 * have been edited directly.
+	 * Re-validate here rather than trusting the validator alone.  The
+	 * validator only sees DDL, so this is what rejects a table created before
+	 * the check existed, or one whose catalog entry was edited directly.
+	 * Neither is reachable from the regression test without
+	 * allow_system_table_mods, so this path is not covered there.
 	 */
 	check_log_filename(*filename);
 
 	full_filename = (char *) palloc(MAXPGPATH);
 
 	if (strlen(Log_directory) > 0 && is_absolute_path(Log_directory))
-		snprintf(full_filename, MAXPGPATH, "%s/%s", Log_directory, *filename);
+		len = snprintf(full_filename, MAXPGPATH, "%s/%s", Log_directory, *filename);
 	else
-		snprintf(full_filename, MAXPGPATH, "%s/%s/%s", DataDir, Log_directory, *filename);
+		len = snprintf(full_filename, MAXPGPATH, "%s/%s/%s", DataDir, Log_directory, *filename);
+
+	if (len >= MAXPGPATH)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("log file path for log_fdw foreign table is too long")));
 
 	*filename = full_filename;
 

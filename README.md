@@ -14,6 +14,13 @@ To list files and their sizes present in PostgreSQL log directory, use:
 ```
 list_postgres_log_files(OUT file_name TEXT, OUT file_size_bytes BIGINT)
 ```
+The file name must be a plain name from that listing. A foreign table can only
+read files directly inside `log_directory`: absolute paths, directory
+separators, `.` and `..` are rejected, both when the table is created and
+every time it is read. That also means the contents of `log_directory` are the
+threat model. If it is set to `.` (the data directory), files such as
+`postgresql.conf` and `pg_hba.conf` are readable through log_fdw by anyone who
+can create a foreign table on the server.
 Note that `list_postgres_log_files()` function is a wrapper around PostgreSQL's
 core function [pg_ls_logdir](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-ADMIN-GENFILE)
 and exists for compatibility reasons.
@@ -40,6 +47,8 @@ git clone https://github.com/aws/postgresql-logfdw.git
 ``` 
 
 ### Building with make
+
+`pg_config` of the target installation must be on `PATH`:
 
 ```
 export USE_PGXS=1
@@ -70,13 +79,18 @@ against a temporary instance configured from `log_fdw.conf`.
 | Build | Command |
 | --- | --- |
 | In a PostgreSQL source tree (`contrib/postgresql-logfdw`) | `make check` |
-| Out of tree, Makefile | `make USE_PGXS=1 install standalone-check` |
-| Out of tree, meson | `ninja -C build install && meson test -C build` |
+| Out of tree, Makefile | `make USE_PGXS=1 install`, then `make USE_PGXS=1 standalone-check` |
+| Out of tree, meson | `ninja -C build install`, then `meson test -C build` |
 
 Both out-of-tree targets require the extension to be installed first, because
 `pg_regress` resolves `CREATE EXTENSION` through the server's own `sharedir`
-and `pkglibdir`. `make check` is not available out of tree (PGXS defines it as
-a stub) and `installcheck` is intentionally disabled, hence `standalone-check`.
+and `pkglibdir`. Installing is a separate step because it usually needs
+privileges (`sudo`) that the test must not run with; a test run against an
+installed module older than the one just built is refused rather than passing
+silently. Do not combine the two into `make -j install standalone-check`: GNU
+make runs command-line goals in parallel under `-j`. `make check` is not
+available out of tree (PGXS defines it as a stub) and `installcheck` is
+intentionally disabled, hence `standalone-check`.
 
 ## Usage
 

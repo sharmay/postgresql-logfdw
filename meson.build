@@ -9,7 +9,7 @@
 # variables that postgres' own contrib/meson.build supplies.
 
 project('log_fdw', 'c',
-  version: '1.4',
+  version: '1.5',
   license: 'Apache-2.0',
   meson_version: '>= 0.56.0',
   default_options: ['warning_level=1'],
@@ -68,7 +68,9 @@ install_data(
 # The regression test needs a server with logging_collector on, so it runs
 # against a temporary instance configured from log_fdw.conf.  pg_regress
 # resolves the extension through the server's own sharedir/pkglibdir, so the
-# module has to be installed first: "ninja install && meson test".
+# module has to be installed first: "ninja install && meson test".  The test
+# refuses to run against an installed module that differs from the one just
+# built, since that would silently test stale code.
 pg_regress = find_program(
   pgc['pkglibdir'] / 'pgxs/src/test/regress/pg_regress',
   required: false,
@@ -78,8 +80,14 @@ if not pg_regress.found()
   warning('pg_regress not found under @0@; "meson test" will report no tests'
           .format(pgc['pkglibdir'] / 'pgxs'))
 else
-  test('regress', pg_regress,
+  test('regress', find_program('sh'),
     args: [
+      '-c',
+      'if ! cmp -s "$1" "$2" && [ "$1" -nt "$2" ]; then echo "installed $2 is older than the built module; run: ninja install" >&2; exit 1; fi; shift 2; exec "$@"',
+      'regress',
+      log_fdw.full_path(),
+      pgc['pkglibdir'] / 'log_fdw.so',
+      pg_regress.full_path(),
       '--bindir=' + pgc['bindir'],
       '--inputdir=' + meson.current_source_dir(),
       '--outputdir=' + meson.current_build_dir(),
